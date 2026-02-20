@@ -1,4 +1,5 @@
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 import json
 import os
 import random
@@ -279,6 +280,9 @@ st.set_page_config(
     page_icon="🎾",
     layout="wide"
 )
+
+# Auto-refresh every 10 seconds for live updates across devices
+st_autorefresh(interval=10000, limit=None, key="data_refresh")
 
 # Custom CSS
 st.markdown("""
