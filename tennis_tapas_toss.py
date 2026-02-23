@@ -11,6 +11,9 @@ import copy
 # Data file for persistence
 DATA_FILE = "tennis_tapas_data.json"
 
+# Admin PIN for protected actions
+ADMIN_PIN = "4321"
+
 
 @dataclass
 class Player:
@@ -368,6 +371,7 @@ if "initialized" not in st.session_state:
     st.session_state.round_history = data.get("round_history", [])
     st.session_state.confirmed = data.get("confirmed", False)
     st.session_state.editing_matches = None
+    st.session_state.is_admin = False
     st.session_state.initialized = True
 
 
@@ -393,6 +397,24 @@ st.divider()
 # Sidebar for configuration and player management
 with st.sidebar:
     st.header("⚙️ Configuration")
+
+    # Admin PIN section
+    st.subheader("🔐 Admin Access")
+    if st.session_state.is_admin:
+        st.success("✓ Admin mode active")
+        if st.button("Lock Admin", use_container_width=True):
+            st.session_state.is_admin = False
+            st.rerun()
+    else:
+        pin_input = st.text_input("Enter PIN for admin access", type="password", key="pin_input")
+        if st.button("Unlock", use_container_width=True):
+            if pin_input == ADMIN_PIN:
+                st.session_state.is_admin = True
+                st.rerun()
+            else:
+                st.error("Incorrect PIN")
+    
+    st.divider()
 
     # Number of courts
     new_num_courts = st.number_input(
@@ -433,18 +455,21 @@ with st.sidebar:
 
     st.divider()
 
-    # Reset button
+    # Reset button (Admin only)
     st.header("🔄 Reset")
-    if st.button("🗑️ Reset Everything", use_container_width=True, type="secondary"):
-        st.session_state.players = {}
-        st.session_state.current_round = 0
-        st.session_state.current_matches = []
-        st.session_state.waiting_players = []
-        st.session_state.round_history = []
-        st.session_state.confirmed = False
-        st.session_state.editing_matches = None
-        persist_state()
-        st.rerun()
+    if st.session_state.is_admin:
+        if st.button("🗑️ Reset Everything", use_container_width=True, type="secondary"):
+            st.session_state.players = {}
+            st.session_state.current_round = 0
+            st.session_state.current_matches = []
+            st.session_state.waiting_players = []
+            st.session_state.round_history = []
+            st.session_state.confirmed = False
+            st.session_state.editing_matches = None
+            persist_state()
+            st.rerun()
+    else:
+        st.info("🔒 Admin access required")
 
 # Main content area
 col1, col2 = st.columns([1, 2])
@@ -493,63 +518,66 @@ with col2:
     if st.session_state.current_round > 0:
         st.markdown(f'<div class="round-indicator">Round {st.session_state.current_round}</div>', unsafe_allow_html=True)
 
-    # Generate/Confirm buttons
+    # Generate/Confirm buttons (Admin only)
     if len(st.session_state.players) >= 2:
-        btn_col1, btn_col2, btn_col3 = st.columns(3)
+        if st.session_state.is_admin:
+            btn_col1, btn_col2, btn_col3 = st.columns(3)
 
-        with btn_col1:
-            if st.button("🎲 Generate Round", use_container_width=True, type="primary"):
-                matches, waiting = generate_matches(
-                    st.session_state.players,
-                    st.session_state.num_courts
-                )
-                st.session_state.current_matches = [match_to_dict(m) for m in matches]
-                st.session_state.waiting_players = waiting
-                st.session_state.confirmed = False
-                st.session_state.editing_matches = None
-                persist_state()
-                st.rerun()
-
-        with btn_col2:
-            if st.session_state.current_matches and not st.session_state.confirmed:
-                if st.button("✅ Confirm Round", use_container_width=True, type="secondary"):
-                    st.session_state.current_round += 1
-                    st.session_state.confirmed = True
-
-                    # Update player history
-                    update_player_history(
+            with btn_col1:
+                if st.button("🎲 Generate Round", use_container_width=True, type="primary"):
+                    matches, waiting = generate_matches(
                         st.session_state.players,
-                        st.session_state.current_matches
+                        st.session_state.num_courts
                     )
-
-                    # Update waiting players' sat out count
-                    update_waiting_players(
-                        st.session_state.players,
-                        st.session_state.waiting_players
-                    )
-
-                    # Add to history
-                    st.session_state.round_history.append({
-                        "round": st.session_state.current_round,
-                        "matches": st.session_state.current_matches.copy(),
-                        "waiting": st.session_state.waiting_players.copy()
-                    })
-
+                    st.session_state.current_matches = [match_to_dict(m) for m in matches]
+                    st.session_state.waiting_players = waiting
+                    st.session_state.confirmed = False
+                    st.session_state.editing_matches = None
                     persist_state()
                     st.rerun()
 
-        with btn_col3:
-            if st.session_state.current_matches and not st.session_state.confirmed:
-                editing = st.session_state.editing_matches is not None
-                if st.button(
-                    "💾 Save Edits" if editing else "✏️ Edit Matches",
-                    use_container_width=True
-                ):
-                    if editing:
-                        st.session_state.editing_matches = None
-                    else:
-                        st.session_state.editing_matches = copy.deepcopy(st.session_state.current_matches)
-                    st.rerun()
+            with btn_col2:
+                if st.session_state.current_matches and not st.session_state.confirmed:
+                    if st.button("✅ Confirm Round", use_container_width=True, type="secondary"):
+                        st.session_state.current_round += 1
+                        st.session_state.confirmed = True
+
+                        # Update player history
+                        update_player_history(
+                            st.session_state.players,
+                            st.session_state.current_matches
+                        )
+
+                        # Update waiting players' sat out count
+                        update_waiting_players(
+                            st.session_state.players,
+                            st.session_state.waiting_players
+                        )
+
+                        # Add to history
+                        st.session_state.round_history.append({
+                            "round": st.session_state.current_round,
+                            "matches": st.session_state.current_matches.copy(),
+                            "waiting": st.session_state.waiting_players.copy()
+                        })
+
+                        persist_state()
+                        st.rerun()
+
+            with btn_col3:
+                if st.session_state.current_matches and not st.session_state.confirmed:
+                    editing = st.session_state.editing_matches is not None
+                    if st.button(
+                        "💾 Save Edits" if editing else "✏️ Edit Matches",
+                        use_container_width=True
+                    ):
+                        if editing:
+                            st.session_state.editing_matches = None
+                        else:
+                            st.session_state.editing_matches = copy.deepcopy(st.session_state.current_matches)
+                        st.rerun()
+        else:
+            st.info("🔒 Enter admin PIN in sidebar to generate rounds")
 
     # Display matches
     if st.session_state.current_matches:
@@ -690,7 +718,10 @@ with col2:
     elif len(st.session_state.players) < 2:
         st.info("Add at least 2 players to generate matches")
     else:
-        st.info("Click 'Generate Round' to create match assignments")
+        if st.session_state.is_admin:
+            st.info("Click 'Generate Round' to create match assignments")
+        else:
+            st.info("🔒 Waiting for admin to generate matches")
 
 # Round history (expandable)
 if st.session_state.round_history:
