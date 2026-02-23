@@ -127,36 +127,54 @@ def score_match(players: dict, team1: List[str], team2: List[str], is_singles: b
 def generate_matches(players: dict, num_courts: int) -> Tuple[List[Match], List[str]]:
     """Generate optimal matches for the given players and courts."""
     available_players = list(players.keys())
-    random.shuffle(available_players)
-
+    
     if len(available_players) < 2:
         return [], available_players
 
     matches = []
     used_players = set()
 
-    # Calculate how many players we can accommodate
-    max_doubles_courts = len(available_players) // 4
-    remaining_after_doubles = len(available_players) - (max_doubles_courts * 4)
+    # Separate players who sat out (must play) from others
+    must_play = [p for p in available_players if players.get(p, {}).get("games_sat_out", 0) > 0]
+    others = [p for p in available_players if p not in must_play]
+    random.shuffle(others)
+    
+    # Sort must_play by how many times they sat out (most sat out first)
+    must_play.sort(key=lambda p: players.get(p, {}).get("games_sat_out", 0), reverse=True)
 
-    # Determine court allocation
+    # Calculate total spots available
+    max_spots = num_courts * 4  # Maximum if all doubles
+    
+    # Determine court allocation based on total players
+    total_players = len(available_players)
+    max_doubles_courts = total_players // 4
+    remaining_after_doubles = total_players - (max_doubles_courts * 4)
+
     if max_doubles_courts >= num_courts:
-        # Enough players for all doubles
         doubles_courts = num_courts
         singles_courts = 0
+        total_spots = num_courts * 4
     else:
         doubles_courts = max_doubles_courts
-        # Check if we can fill remaining courts with singles
         if remaining_after_doubles >= 2:
             singles_courts = min(num_courts - doubles_courts, remaining_after_doubles // 2)
         else:
             singles_courts = 0
+        total_spots = doubles_courts * 4 + singles_courts * 2
+
+    # Build priority list: must_play players first, then others
+    # This guarantees players who sat out will be included
+    priority_players = must_play + others
+    
+    # Select players who will play this round
+    players_this_round = priority_players[:total_spots]
+    random.shuffle(players_this_round)
 
     court_number = 1
 
     # Generate doubles matches
     for _ in range(doubles_courts):
-        available = [p for p in available_players if p not in used_players]
+        available = [p for p in players_this_round if p not in used_players]
         if len(available) < 4:
             break
 
@@ -164,7 +182,7 @@ def generate_matches(players: dict, num_courts: int) -> Tuple[List[Match], List[
         best_score = float('inf')
 
         # Try different combinations to find optimal match
-        for team1_combo in combinations(available[:12], 2):  # Limit search space
+        for team1_combo in combinations(available[:12], 2):
             remaining = [p for p in available if p not in team1_combo][:10]
             for team2_combo in combinations(remaining, 2):
                 team1 = list(team1_combo)
@@ -191,7 +209,7 @@ def generate_matches(players: dict, num_courts: int) -> Tuple[List[Match], List[
 
     # Generate singles matches
     for _ in range(singles_courts):
-        available = [p for p in available_players if p not in used_players]
+        available = [p for p in players_this_round if p not in used_players]
         if len(available) < 2:
             break
 
