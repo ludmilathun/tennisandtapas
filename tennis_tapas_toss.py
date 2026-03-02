@@ -714,7 +714,7 @@ with col2:
                             for p in match["team1"]
                         ])
                         st.markdown(f"""
-                        <div style="background: #e8f5e9; padding: 10px; text-align: center; border-left: 3px solid #4CAF50;">
+                        <div style="background: #e8f5e9; padding: 10px; text-align: center; border-left: 3px solid #4CAF50; color: black;">
                             {team1_players}
                             <br><small style="color: #666;">Avg: {match['team1_avg_rating']:.1f}</small>
                         </div>
@@ -722,7 +722,7 @@ with col2:
                         
                         # VS divider
                         st.markdown("""
-                        <div style="background: #fff; padding: 5px; text-align: center; font-weight: bold; color: #333;">
+                        <div style="background: #fff; padding: 5px; text-align: center; font-weight: bold; color: black;">
                             ⚔️ VS ⚔️
                         </div>
                         """, unsafe_allow_html=True)
@@ -734,7 +734,7 @@ with col2:
                         ])
                         st.markdown(f"""
                         <div style="background: #fff3e0; padding: 10px; text-align: center; 
-                                    border-left: 3px solid #FF9800; border-radius: 0 0 10px 10px;">
+                                    border-left: 3px solid #FF9800; border-radius: 0 0 10px 10px; color: black;">
                             {team2_players}
                             <br><small style="color: #666;">Avg: {match['team2_avg_rating']:.1f}</small>
                         </div>
