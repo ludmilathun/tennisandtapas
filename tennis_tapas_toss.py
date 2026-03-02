@@ -129,7 +129,8 @@ def score_match(players: dict, team1: List[str], team2: List[str], is_singles: b
 
 def generate_matches(players: dict, num_courts: int) -> Tuple[List[Match], List[str]]:
     """Generate optimal matches for the given players and courts."""
-    available_players = list(players.keys())
+    # Exclude paused players from available pool
+    available_players = [p for p in players.keys() if not players.get(p, {}).get("paused", False)]
     
     if len(available_players) < 2:
         return [], available_players
@@ -416,17 +417,21 @@ with st.sidebar:
     
     st.divider()
 
-    # Number of courts
-    new_num_courts = st.number_input(
-        "Number of Courts",
-        min_value=1,
-        max_value=20,
-        value=st.session_state.num_courts,
-        key="courts_input"
-    )
-    if new_num_courts != st.session_state.num_courts:
-        st.session_state.num_courts = new_num_courts
-        persist_state()
+    # Number of courts (Admin only)
+    if st.session_state.is_admin:
+        new_num_courts = st.number_input(
+            "Number of Courts",
+            min_value=1,
+            max_value=20,
+            value=st.session_state.num_courts,
+            key="courts_input"
+        )
+        if new_num_courts != st.session_state.num_courts:
+            st.session_state.num_courts = new_num_courts
+            persist_state()
+    else:
+        st.metric("Number of Courts", st.session_state.num_courts)
+        st.caption("🔒 Admin can change this")
 
     st.divider()
 
@@ -446,6 +451,7 @@ with st.sidebar:
                     "name": name,
                     "rating": new_rating,
                     "games_sat_out": 0,
+                    "paused": False,
                     "last_partners": [],
                     "last_opponents": []
                 }
@@ -477,38 +483,51 @@ col1, col2 = st.columns([1, 2])
 # Player list
 with col1:
     st.header("👥 Players")
-    st.caption(f"Total: {len(st.session_state.players)} players | Capacity: {st.session_state.num_courts * 4} (doubles) / {st.session_state.num_courts * 2} (singles)")
+    active_players = sum(1 for p in st.session_state.players.values() if not p.get("paused", False))
+    st.caption(f"Active: {active_players} / {len(st.session_state.players)} players | Court capacity: {st.session_state.num_courts * 4} (doubles)")
 
     if not st.session_state.players:
         st.info("No players added yet. Add players using the sidebar.")
     else:
-        # Sort players by rating (descending)
+        # Sort players: active first (sorted by rating), then paused
         sorted_players = sorted(
             st.session_state.players.items(),
-            key=lambda x: x[1]["rating"],
-            reverse=True
+            key=lambda x: (x[1].get("paused", False), -x[1]["rating"])
         )
 
         for name, player in sorted_players:
-            col_name, col_rating, col_remove = st.columns([3, 1, 1])
+            is_paused = player.get("paused", False)
+            sat_out = player.get("games_sat_out", 0)
+            
+            col_name, col_rating, col_pause, col_remove = st.columns([2.5, 0.8, 1, 0.7])
             with col_name:
-                sat_out = player.get("games_sat_out", 0)
-                sat_indicator = " 🔴" if sat_out > 0 else ""
-                st.write(f"**{name}**{sat_indicator}")
+                status = "⏸️ " if is_paused else ""
+                sat_indicator = "🔴 " if sat_out > 0 and not is_paused else ""
+                st.write(f"{status}{sat_indicator}**{name}**")
             with col_rating:
-                st.write(f"⭐ {player['rating']}")
+                st.write(f"⭐{player['rating']}")
+            with col_pause:
+                pause_label = "▶️" if is_paused else "⏸️"
+                pause_help = "Resume playing" if is_paused else "Pause (skip rounds)"
+                if st.button(pause_label, key=f"pause_{name}", help=pause_help):
+                    st.session_state.players[name]["paused"] = not is_paused
+                    persist_state()
+                    st.rerun()
             with col_remove:
                 if st.button("❌", key=f"remove_{name}", help=f"Remove {name}"):
                     del st.session_state.players[name]
-                    # Also remove from current matches if present
                     st.session_state.current_matches = []
                     st.session_state.waiting_players = []
                     st.session_state.confirmed = False
                     persist_state()
                     st.rerun()
 
-    if any(p.get("games_sat_out", 0) > 0 for p in st.session_state.players.values()):
-        st.caption("🔴 = Sat out last round (priority for next)")
+        # Legend
+        active_count = sum(1 for p in st.session_state.players.values() if not p.get("paused", False))
+        paused_count = len(st.session_state.players) - active_count
+        st.caption(f"Active: {active_count} | Paused: {paused_count}")
+        if any(p.get("games_sat_out", 0) > 0 for p in st.session_state.players.values()):
+            st.caption("🔴 = Sat out last round (priority)")
 
 # Match area
 with col2:
@@ -519,7 +538,8 @@ with col2:
         st.markdown(f'<div class="round-indicator">Round {st.session_state.current_round}</div>', unsafe_allow_html=True)
 
     # Generate/Confirm buttons (Admin only)
-    if len(st.session_state.players) >= 2:
+    active_count = sum(1 for p in st.session_state.players.values() if not p.get("paused", False))
+    if active_count >= 2:
         if st.session_state.is_admin:
             btn_col1, btn_col2, btn_col3 = st.columns(3)
 
@@ -667,39 +687,58 @@ with col2:
                     st.divider()
 
         else:
-            # Normal display mode
-            for match in st.session_state.current_matches:
-                with st.container():
-                    match_type = "🎾 Singles" if match["is_singles"] else "🎾🎾 Doubles"
-                    rating_diff = abs(match["team1_avg_rating"] - match["team2_avg_rating"])
-                    balance_indicator = "✅" if rating_diff <= 1 else "⚠️"
-
-                    st.markdown(f"""
-                    <div class="court-card">
-                        <h3>Court {match['court_number']} - {match_type} {balance_indicator}</h3>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    col_t1, col_vs, col_t2 = st.columns([2, 1, 2])
-
-                    with col_t1:
-                        st.markdown("**Team 1**")
-                        for player in match["team1"]:
-                            rating = get_player_rating(st.session_state.players, player)
-                            st.write(f"• {player} (⭐{rating})")
-                        st.caption(f"Avg: {match['team1_avg_rating']:.1f}")
-
-                    with col_vs:
-                        st.markdown("<div class='vs-text'><br>VS</div>", unsafe_allow_html=True)
-
-                    with col_t2:
-                        st.markdown("**Team 2**")
-                        for player in match["team2"]:
-                            rating = get_player_rating(st.session_state.players, player)
-                            st.write(f"• {player} (⭐{rating})")
-                        st.caption(f"Avg: {match['team2_avg_rating']:.1f}")
-
-                    st.divider()
+            # Table layout display mode
+            num_matches = len(st.session_state.current_matches)
+            if num_matches > 0:
+                # Create columns for each court
+                court_cols = st.columns(num_matches)
+                
+                for idx, match in enumerate(st.session_state.current_matches):
+                    with court_cols[idx]:
+                        match_type = "Singles" if match["is_singles"] else "Doubles"
+                        rating_diff = abs(match["team1_avg_rating"] - match["team2_avg_rating"])
+                        balance = "✅" if rating_diff <= 1 else "⚠️"
+                        
+                        # Court header
+                        st.markdown(f"""
+                        <div style="background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%); 
+                                    padding: 10px; border-radius: 10px 10px 0 0; text-align: center; color: white;">
+                            <strong>Court {match['court_number']}</strong><br>
+                            <small>{match_type} {balance}</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Team 1
+                        team1_players = "<br>".join([
+                            f"{p} ⭐{get_player_rating(st.session_state.players, p)}" 
+                            for p in match["team1"]
+                        ])
+                        st.markdown(f"""
+                        <div style="background: #e8f5e9; padding: 10px; text-align: center; border-left: 3px solid #4CAF50;">
+                            {team1_players}
+                            <br><small style="color: #666;">Avg: {match['team1_avg_rating']:.1f}</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # VS divider
+                        st.markdown("""
+                        <div style="background: #fff; padding: 5px; text-align: center; font-weight: bold; color: #333;">
+                            ⚔️ VS ⚔️
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Team 2
+                        team2_players = "<br>".join([
+                            f"{p} ⭐{get_player_rating(st.session_state.players, p)}" 
+                            for p in match["team2"]
+                        ])
+                        st.markdown(f"""
+                        <div style="background: #fff3e0; padding: 10px; text-align: center; 
+                                    border-left: 3px solid #FF9800; border-radius: 0 0 10px 10px;">
+                            {team2_players}
+                            <br><small style="color: #666;">Avg: {match['team2_avg_rating']:.1f}</small>
+                        </div>
+                        """, unsafe_allow_html=True)
 
         # Waiting players
         if st.session_state.waiting_players:
@@ -715,8 +754,8 @@ with col2:
             st.write(waiting_text)
             st.caption("These players will have priority in the next round")
 
-    elif len(st.session_state.players) < 2:
-        st.info("Add at least 2 players to generate matches")
+    elif active_count < 2:
+        st.info("Need at least 2 active (non-paused) players to generate matches")
     else:
         if st.session_state.is_admin:
             st.info("Click 'Generate Round' to create match assignments")
